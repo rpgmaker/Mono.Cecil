@@ -33,17 +33,25 @@ namespace Mono.Cecil {
 		internal IMetadataResolver metadata_resolver;
 #if !READ_ONLY
 		internal IMetadataImporterProvider metadata_importer_provider;
-#if !PCL
+#if !PCL && !NET_CORE
 		internal IReflectionImporterProvider reflection_importer_provider;
 #endif
 #endif
 		Stream symbol_stream;
 		ISymbolReaderProvider symbol_reader_provider;
 		bool read_symbols;
+		bool projections;
+		bool in_memory;
+		bool read_write;
 
 		public ReadingMode ReadingMode {
 			get { return reading_mode; }
 			set { reading_mode = value; }
+		}
+
+		public bool InMemory {
+			get { return in_memory; }
+			set { in_memory = value; }
 		}
 
 		public IAssemblyResolver AssemblyResolver {
@@ -62,7 +70,7 @@ namespace Mono.Cecil {
 			set { metadata_importer_provider = value; }
 		}
 
-#if !PCL
+#if !PCL && !NET_CORE
 		public IReflectionImporterProvider ReflectionImporterProvider {
 			get { return reflection_importer_provider; }
 			set { reflection_importer_provider = value; }
@@ -83,6 +91,16 @@ namespace Mono.Cecil {
 		public bool ReadSymbols {
 			get { return read_symbols; }
 			set { read_symbols = value; }
+		}
+
+		public bool ReadWrite {
+			get { return read_write; }
+			set { read_write = value; }
+		}
+
+		public bool ApplyWindowsRuntimeProjections {
+			get { return projections; }
+			set { projections = value; }
 		}
 
 		public ReaderParameters ()
@@ -107,7 +125,7 @@ namespace Mono.Cecil {
 		IMetadataResolver metadata_resolver;
 #if !READ_ONLY
 		IMetadataImporterProvider metadata_importer_provider;
-#if !PCL
+#if !PCL && !NET_CORE
 		IReflectionImporterProvider reflection_importer_provider;
 #endif
 #endif
@@ -143,7 +161,7 @@ namespace Mono.Cecil {
 			set { metadata_importer_provider = value; }
 		}
 
-#if !PCL
+#if !PCL && !NET_CORE
 		public IReflectionImporterProvider ReflectionImporterProvider {
 			get { return reflection_importer_provider; }
 			set { reflection_importer_provider = value; }
@@ -160,11 +178,12 @@ namespace Mono.Cecil {
 
 		static TargetRuntime GetCurrentRuntime ()
 		{
-#if !PCL
+#if !PCL && !NET_CORE
 			return typeof (object).Assembly.ImageRuntimeVersion.ParseRuntime ();
 #else
-			var corlib_name = AssemblyNameReference.Parse (typeof (object).Assembly.FullName);
+			var corlib_name = AssemblyNameReference.Parse (typeof (object).GetAssembly ().FullName);
 			var corlib_version = corlib_name.Version;
+
 			switch (corlib_version.Major) {
 			case 1:
 				return corlib_version.Minor == 0
@@ -186,7 +205,7 @@ namespace Mono.Cecil {
 		Stream symbol_stream;
 		ISymbolWriterProvider symbol_writer_provider;
 		bool write_symbols;
-#if !PCL
+#if !PCL && !NET_CORE
 		SR.StrongNameKeyPair key_pair;
 #endif
 		public Stream SymbolStream {
@@ -203,7 +222,7 @@ namespace Mono.Cecil {
 			get { return write_symbols; }
 			set { write_symbols = value; }
 		}
-#if !PCL
+#if !PCL && !NET_CORE
 		public SR.StrongNameKeyPair StrongNameKeyPair {
 			get { return key_pair; }
 			set { key_pair = value; }
@@ -213,7 +232,7 @@ namespace Mono.Cecil {
 
 #endif
 
-	public sealed class ModuleDefinition : ModuleReference, ICustomAttributeProvider {
+	public sealed class ModuleDefinition : ModuleReference, ICustomAttributeProvider, IDisposable {
 
 		internal Image Image;
 		internal MetadataSystem MetadataSystem;
@@ -224,12 +243,13 @@ namespace Mono.Cecil {
 		internal IAssemblyResolver assembly_resolver;
 		internal IMetadataResolver metadata_resolver;
 		internal TypeSystem type_system;
-
-		readonly MetadataReader reader;
-		readonly string fq_name;
+		internal readonly MetadataReader reader;
+		readonly string file_name;
 
 		internal string runtime_version;
 		internal ModuleKind kind;
+		WindowsRuntimeProjections projections;
+		MetadataKind metadata_kind;
 		TargetRuntime runtime;
 		TargetArchitecture architecture;
 		ModuleAttributes attributes;
@@ -240,7 +260,7 @@ namespace Mono.Cecil {
 		MethodDefinition entry_point;
 
 #if !READ_ONLY
-#if !PCL
+#if !PCL && !NET_CORE
 		internal IReflectionImporter reflection_importer;
 #endif
 		internal IMetadataImporter metadata_importer;
@@ -262,6 +282,20 @@ namespace Mono.Cecil {
 		public ModuleKind Kind {
 			get { return kind; }
 			set { kind = value; }
+		}
+
+		public MetadataKind MetadataKind {
+			get { return metadata_kind; }
+			set { metadata_kind = value; }
+		}
+
+		internal WindowsRuntimeProjections Projections {
+			get {
+				if (projections == null)
+					Interlocked.CompareExchange (ref projections, new WindowsRuntimeProjections (this), null);
+
+				return projections;
+			}
 		}
 
 		public TargetRuntime Runtime {
@@ -295,8 +329,13 @@ namespace Mono.Cecil {
 			set { characteristics = value; }
 		}
 
+		[Obsolete("Use FileName")]
 		public string FullyQualifiedName {
-			get { return fq_name; }
+			get { return file_name; }
+		}
+
+		public string FileName {
+			get { return file_name; }
 		}
 
 		public Guid Mvid {
@@ -325,7 +364,7 @@ namespace Mono.Cecil {
 		}
 
 #if !READ_ONLY
-#if !PCL
+#if !PCL && !NET_CORE
 		internal IReflectionImporter ReflectionImporter {
 			get {
 				if (reflection_importer == null)
@@ -347,9 +386,9 @@ namespace Mono.Cecil {
 
 		public IAssemblyResolver AssemblyResolver {
 			get {
-#if !PCL
+#if !PCL && !NET_CORE
 				if (assembly_resolver == null)
-					Interlocked.CompareExchange (ref assembly_resolver, new DefaultAssemblyResolver (), null);
+					Interlocked.CompareExchange (ref assembly_resolver, new AssemblyResolver (), null);
 #endif
 
 				return assembly_resolver;
@@ -523,12 +562,21 @@ namespace Mono.Cecil {
 			this.architecture = image.Architecture;
 			this.attributes = image.Attributes;
 			this.characteristics = image.Characteristics;
-			this.fq_name = image.FileName;
+			this.file_name = image.FileName;
 
 			this.reader = new MetadataReader (this);
 		}
 
-			public bool HasTypeReference (string fullName)
+		public void Dispose ()
+		{
+			if (Image != null)
+				Image.Dispose ();
+
+			if (SymbolReader != null)
+				SymbolReader.Dispose ();
+		}
+
+		public bool HasTypeReference (string fullName)
 		{
 			return HasTypeReference (string.Empty, fullName);
 		}
@@ -655,7 +703,7 @@ namespace Mono.Cecil {
 
 		internal FieldDefinition Resolve (FieldReference field)
 		{
-#if PCL
+#if PCL || NET_CORE
 			if (MetadataResolver == null)
 				throw new NotSupportedException ();
 #endif
@@ -664,7 +712,7 @@ namespace Mono.Cecil {
 
 		internal MethodDefinition Resolve (MethodReference method)
 		{
-#if PCL
+#if PCL || NET_CORE
 			if (MetadataResolver == null)
 				throw new NotSupportedException ();
 #endif
@@ -673,7 +721,7 @@ namespace Mono.Cecil {
 
 		internal TypeDefinition Resolve (TypeReference type)
 		{
-#if PCL
+#if PCL || NET_CORE
 			if (MetadataResolver == null)
 				throw new NotSupportedException ();
 #endif
@@ -691,7 +739,12 @@ namespace Mono.Cecil {
 				throw new ArgumentException ();
 		}
 
-#if !PCL
+		static ImportGenericContext GenericContextFor (IGenericParameterProvider context)
+		{
+			return context != null ? new ImportGenericContext (context) : default (ImportGenericContext);
+		}
+
+#if !PCL && !NET_CORE
 
 		[Obsolete ("Use ImportReference", error: false)]
 		public TypeReference Import (Type type)
@@ -856,12 +909,15 @@ namespace Mono.Cecil {
 			return MetadataImporter.ImportReference (method, context);
 		}
 		
-		public void ImportWin32Resources(ModuleDefinition source)
+		/// <summary>
+		//Use by IL-Repack
+		/// </summary>
+		/// <param name="module">Module where to look for resources</param>
+		public void ImportWin32Resources(ModuleDefinition module)
 		{
-			Section rsrc = source.Image.GetSection(".rsrc");
-			var raw_resources = new byte[rsrc.Data.Length];
-			Buffer.BlockCopy(rsrc.Data, 0, raw_resources, 0, rsrc.Data.Length);
-			Win32Resources = raw_resources;
+			Section rsrc = module.Image.GetSection(".rsrc");
+			var resourceRreader = module.Image.GetReaderAt(rsrc.VirtualAddress);
+			Win32Resources = resourceRreader.ReadBytes((int)rsrc.SizeOfRawData);
 			Win32RVA = rsrc.VirtualAddress;
 		}
 
@@ -927,8 +983,11 @@ namespace Mono.Cecil {
 				if (win32ResourceDirectory == null && Image != null)
 				{
 					var rsrc = Image.GetSection(".rsrc");
-					if (rsrc != null && rsrc.Data.Length > 0)
-						win32ResourceDirectory = RsrcReader.ReadResourceDirectory(rsrc.Data, rsrc.VirtualAddress);
+				    if (rsrc != null && rsrc.SizeOfRawData > 0)
+                    {
+                        var resource_reader = Image.GetReaderAt(rsrc.VirtualAddress);
+                        win32ResourceDirectory = RsrcReader.ReadResourceDirectory (resource_reader.ReadBytes((int)rsrc.SizeOfRawData), rsrc.VirtualAddress);
+				    }
 				}
 				return win32ResourceDirectory ?? (win32ResourceDirectory = new ResourceDirectory());
 			}
@@ -989,7 +1048,7 @@ namespace Mono.Cecil {
 #if !READ_ONLY
 			if (parameters.MetadataImporterProvider != null)
 				module.metadata_importer = parameters.MetadataImporterProvider.GetMetadataImporter (module);
-#if !PCL
+#if !PCL && !NET_CORE
 			if (parameters.ReflectionImporterProvider != null)
 				module.reflection_importer = parameters.ReflectionImporterProvider.GetReflectionImporter (module);
 #endif
@@ -1017,17 +1076,17 @@ namespace Mono.Cecil {
 
 #endif
 
-#if !PCL
+#if !PCL && !NET_CORE
 		public void ReadSymbols ()
 		{
-			if (string.IsNullOrEmpty (fq_name))
+			if (string.IsNullOrEmpty (file_name))
 				throw new InvalidOperationException ();
 
 			var provider = SymbolProvider.GetPlatformReaderProvider ();
 			if (provider == null)
 				throw new InvalidOperationException ();
 
-			ReadSymbols (provider.GetSymbolReader (this, fq_name));
+			ReadSymbols (provider.GetSymbolReader (this, file_name));
 		}
 #endif
 
@@ -1039,6 +1098,11 @@ namespace Mono.Cecil {
 			symbol_reader = reader;
 
 			ProcessDebugHeader ();
+
+			if (HasImage && ReadingMode == ReadingMode.Immediate) {
+				var immediate_reader = new ImmediateModuleReader (Image);
+				immediate_reader.ReadSymbols (this);
+			}
 		}
 
 #if !PCL
@@ -1049,9 +1113,19 @@ namespace Mono.Cecil {
 
 		public static ModuleDefinition ReadModule (string fileName, ReaderParameters parameters)
 		{
-			using (var stream = GetFileStream (fileName, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-				return ReadModule (stream, parameters);
+			var stream = GetFileStream (fileName, FileMode.Open, parameters.ReadWrite ? FileAccess.ReadWrite : FileAccess.Read, FileShare.Read);
+
+			if (parameters.InMemory) {
+				var memory = new MemoryStream (stream.CanSeek ? (int) stream.Length : 0);
+				using (stream)
+					stream.CopyTo (memory);
+
+				memory.Position = 0;
+				stream = memory;
 			}
+
+			return ReadModule (stream, fileName, parameters);
+
 		}
 
 		static Stream GetFileStream (string fileName, FileMode mode, FileAccess access, FileShare share)
@@ -1070,21 +1144,19 @@ namespace Mono.Cecil {
 			return ReadModule (stream, new ReaderParameters (ReadingMode.Deferred));
 		}
 
-		static void CheckStream (object stream)
-		{
-			if (stream == null)
-				throw new ArgumentNullException ("stream");
-		}
-
 		public static ModuleDefinition ReadModule (Stream stream, ReaderParameters parameters)
 		{
+			return ReadModule (stream, "", parameters);
+		}
+
+		static ModuleDefinition ReadModule (Stream stream, string fileName, ReaderParameters parameters)
+		{
 			Mixin.CheckStream (stream);
-			if (!stream.CanRead || !stream.CanSeek)
-				throw new ArgumentException ();
+			Mixin.CheckReadSeek (stream);
 			Mixin.CheckParameters (parameters);
 
-			return ModuleReader.CreateModuleFrom (
-				ImageReader.ReadImageFrom (stream),
+			return ModuleReader.CreateModule (
+				ImageReader.ReadImage (stream, fileName),
 				parameters);
 		}
 
@@ -1104,6 +1176,24 @@ namespace Mono.Cecil {
 		}
 #endif
 
+		public void Write ()
+		{
+			if (!HasImage)
+				throw new InvalidOperationException ();
+
+			Image.Stream.Position = 0;
+			Write (Image.Stream);
+		}
+
+		public void Write (WriterParameters parameters)
+		{
+			if (!HasImage)
+				throw new InvalidOperationException ();
+
+			Image.Stream.Position = 0;
+			Write (Image.Stream, parameters);
+		}
+
 		public void Write (Stream stream)
 		{
 			Write (stream, new WriterParameters ());
@@ -1112,8 +1202,7 @@ namespace Mono.Cecil {
 		public void Write (Stream stream, WriterParameters parameters)
 		{
 			Mixin.CheckStream (stream);
-			if (!stream.CanWrite || !stream.CanSeek)
-				throw new ArgumentException ();
+			Mixin.CheckWriteSeek (stream);
 			Mixin.CheckParameters (parameters);
 
 			ModuleWriter.WriteModuleTo (this, stream, parameters);
@@ -1129,6 +1218,18 @@ namespace Mono.Cecil {
 		{
 			if (stream == null)
 				throw new ArgumentNullException ("stream");
+		}
+
+		public static void CheckWriteSeek (Stream stream)
+		{
+			if (!stream.CanWrite || !stream.CanSeek)
+				throw new ArgumentException ();
+		}
+
+		public static void CheckReadSeek (Stream stream)
+		{
+			if (!stream.CanRead || !stream.CanSeek)
+				throw new ArgumentException ();
 		}
 
 #if !READ_ONLY
@@ -1174,13 +1275,13 @@ namespace Mono.Cecil {
 			if (assembly_name != "mscorlib" && assembly_name != "System.Runtime")
 				return false;
 
-			if (module.HasImage && !module.Read (module, (m, reader) => reader.image.GetTableLength (Table.TypeDef) > 1))
+			if (module.HasImage && module.Read (module, (m, reader) => reader.image.GetTableLength (Table.AssemblyRef) > 0))
 				return false;
 
 			return true;
 		}
 
-		public static string GetFullyQualifiedName (this Stream self)
+		public static string GetFileName (this Stream self)
 		{
 #if !PCL
 			var file_stream = self as FileStream;
@@ -1192,6 +1293,16 @@ namespace Mono.Cecil {
 			return string.Empty;
 #endif
 		}
+
+#if !NET_4_0
+		public static void CopyTo (this Stream self, Stream target)
+		{
+			var buffer = new byte [1024 * 8];
+			int read;
+			while ((read = self.Read (buffer, 0, buffer.Length)) > 0)
+				target.Write (buffer, 0, read);
+		}
+#endif
 
 		public static TargetRuntime ParseRuntime (this string self)
 		{
@@ -1221,6 +1332,29 @@ namespace Mono.Cecil {
 			default:
 				return "v4.0.30319";
 			}
+		}
+
+		public static bool IsWindowsMetadata (this ModuleDefinition module)
+		{
+			return module.MetadataKind != MetadataKind.Ecma335;
+		}
+
+#if !PCL
+		public static byte [] ReadAll (this Stream self)
+		{
+			int read;
+			var memory = new MemoryStream ((int) self.Length);
+			var buffer = new byte [1024];
+
+			while ((read = self.Read (buffer, 0, buffer.Length)) != 0)
+				memory.Write (buffer, 0, read);
+
+			return memory.ToArray ();
+		}
+#endif
+
+		public static void Read (object o)
+		{
 		}
 	}
 }

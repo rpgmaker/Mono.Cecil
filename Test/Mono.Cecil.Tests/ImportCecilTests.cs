@@ -214,11 +214,11 @@ namespace Mono.Cecil.Tests {
 		public void ImportMethodOnOpenGeneric ()
 		{
 			var generic = typeof (Generic<>).ToDefinition ();
-			var module = ModuleDefinition.CreateModule ("foo", ModuleKind.Dll);
 
-			var method = module.ImportReference (generic.GetMethod ("Method"));
-
-			Assert.AreEqual ("T Mono.Cecil.Tests.ImportCecilTests/Generic`1::Method(T)", method.FullName);
+			using (var module = ModuleDefinition.CreateModule ("foo", ModuleKind.Dll)) {
+				var method = module.ImportReference (generic.GetMethod ("Method"));
+				Assert.AreEqual ("T Mono.Cecil.Tests.ImportCecilTests/Generic`1::Method(T)", method.FullName);
+			}
 		}
 
 		public class ContextGeneric1Method2<G1>
@@ -382,9 +382,9 @@ namespace Mono.Cecil.Tests {
 			var module = ModuleDefinition.ReadModule(typeof(ContextGeneric1Method2<>).Module.FullyQualifiedName);
 			var type_def = GetType().ToDefinition();
 			var meth_def = type_def.GetMethod("GenericMethod");
-			var meth_ref = module.Import(meth_def);
+			var meth_ref = module.ImportReference(meth_def);
 			var instr = meth_def.Body.Instructions.First(i => i.OpCode.OperandType == OperandType.InlineMethod);
-			var method = module.Import((MethodReference)instr.Operand, meth_ref);
+			var method = module.ImportReference((MethodReference)instr.Operand, meth_ref);
 			Assert.AreEqual("T T[0...,0...]::Get(System.Int32,System.Int32)", method.FullName);
 		}
 	}

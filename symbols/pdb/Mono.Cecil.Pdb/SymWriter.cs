@@ -59,7 +59,7 @@ namespace Mono.Cecil.Pdb
 
 		public void DefineLocalVariable2 (
 			string name,
-			FieldAttributes attributes,
+			VariableAttributes attributes,
 			SymbolToken sigToken,
 			SymAddressKind addrKind,
 			int addr1,
@@ -144,14 +144,6 @@ namespace Mono.Cecil.Pdb
 		public void UsingNamespace (string fullName)
 		{
 			m_writer.UsingNamespace (fullName);
-		}
-
-		public void DefineCustomMetadata (string name, byte[] metadata)
-		{
-			var metadataPinned = GCHandle.Alloc (metadata, GCHandleType.Pinned);
-			var metadataPtr = metadataPinned.AddrOfPinnedObject ();
-			m_writer.SetSymAttribute (0, name, (uint)metadata.Length, metadataPtr);
-			metadataPinned.Free ();
 		}
 	}
 }

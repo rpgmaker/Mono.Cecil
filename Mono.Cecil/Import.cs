@@ -8,8 +8,6 @@
 // Licensed under the MIT/X11 license.
 //
 
-#if !READ_ONLY
-
 using System;
 using System.Collections.Generic;
 using Mono.Collections.Generic;
@@ -31,7 +29,7 @@ namespace Mono.Cecil {
 		MethodReference ImportReference (MethodReference method, IGenericParameterProvider context);
 	}
 
-#if !PCL
+#if !PCL && !NET_CORE
 
 	public interface IReflectionImporterProvider {
 		IReflectionImporter GetReflectionImporter (ModuleDefinition module);
@@ -81,13 +79,18 @@ namespace Mono.Cecil {
 				if (candidate == null)
 					continue;
 
-				if (method != candidate.Name)
+				if (method != NormalizeMethodName (candidate))
 					continue;
 
 				return candidate.GenericParameters [position];
 			}
 
 			throw new InvalidOperationException ();
+		}
+
+		public string NormalizeMethodName (MethodReference method)
+		{
+			return method.DeclaringType.GetElementType ().FullName + "." + method.Name;
 		}
 
 		public TypeReference TypeParameter (string type, int position)
@@ -123,8 +126,8 @@ namespace Mono.Cecil {
 		}
 	}
 
+#if !PCL && !NET_CORE
 
-#if !PCL
 	public class ReflectionImporter : IReflectionImporter {
 
 		readonly ModuleDefinition module;
@@ -233,18 +236,23 @@ namespace Mono.Cecil {
 				throw new InvalidOperationException ();
 
 			if (type.DeclaringMethod != null)
-				return context.MethodParameter (type.DeclaringMethod.Name, type.GenericParameterPosition);
+				return context.MethodParameter (NormalizeMethodName (type.DeclaringMethod), type.GenericParameterPosition);
 
 			if (type.DeclaringType != null)
-				return  context.TypeParameter (NormalizedFullName (type.DeclaringType), type.GenericParameterPosition);
+				return context.TypeParameter (NormalizeTypeFullName (type.DeclaringType), type.GenericParameterPosition);
 
 			throw new InvalidOperationException();
 		}
 
-		private static string NormalizedFullName (Type type)
+		static string NormalizeMethodName (SR.MethodBase method)
+		{
+			return NormalizeTypeFullName (method.DeclaringType) + "." + method.Name;
+		}
+
+		static string NormalizeTypeFullName (Type type)
 		{
 			if (IsNestedType (type))
-				return NormalizedFullName (type.DeclaringType) + "/" + type.Name;
+				return NormalizeTypeFullName (type.DeclaringType) + "/" + type.Name;
 
 			return type.FullName;
 		}
@@ -518,7 +526,8 @@ namespace Mono.Cecil {
 			reference = new AssemblyNameReference (name.Name, name.Version) {
 				Culture = name.Culture,
 				HashAlgorithm = name.HashAlgorithm,
-				IsRetargetable = name.IsRetargetable
+				IsRetargetable = name.IsRetargetable,
+				IsWindowsRuntime = name.IsWindowsRuntime,
 			};
 
 			var pk_token = !name.PublicKeyToken.IsNullOrEmpty ()
@@ -628,7 +637,7 @@ namespace Mono.Cecil {
 				var mvar_parameter = (GenericParameter) type;
 				if (mvar_parameter.DeclaringMethod == null)
 					throw new InvalidOperationException ();
-				return context.MethodParameter (mvar_parameter.DeclaringMethod.Name, mvar_parameter.Position);
+				return context.MethodParameter (context.NormalizeMethodName (mvar_parameter.DeclaringMethod), mvar_parameter.Position);
 			}
 
 			throw new NotSupportedException (type.etype.ToString ());
@@ -724,6 +733,8 @@ namespace Mono.Cecil {
 		}
 	}
 
+#endif
+
 	static partial class Mixin {
 
 		public static void CheckModule (ModuleDefinition module)
@@ -749,7 +760,7 @@ namespace Mono.Cecil {
 			return false;
 		}
 
-		private static bool Equals (byte [] a, byte [] b)
+		static bool Equals (byte [] a, byte [] b)
 		{
 			if (ReferenceEquals (a, b))
 				return true;
@@ -763,7 +774,7 @@ namespace Mono.Cecil {
 			return true;
 		}
 
-		private static bool Equals<T> (T a, T b) where T : class, IEquatable<T>
+		static bool Equals<T> (T a, T b) where T : class, IEquatable<T>
 		{
 			if (ReferenceEquals (a, b))
 				return true;
@@ -772,7 +783,7 @@ namespace Mono.Cecil {
 			return a.Equals (b);
 		}
 
-		private static bool Equals (AssemblyNameReference a, AssemblyNameReference b)
+		static bool Equals (AssemblyNameReference a, AssemblyNameReference b)
 		{
 			if (ReferenceEquals (a, b))
 				return true;
@@ -787,8 +798,4 @@ namespace Mono.Cecil {
 			return true;
 		}
 	}
-
-#endif
 }
-
-#endif

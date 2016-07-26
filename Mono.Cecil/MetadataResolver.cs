@@ -28,7 +28,7 @@ namespace Mono.Cecil {
 		MethodDefinition Resolve (MethodReference method);
 	}
 
-#if !PCL
+#if !PCL && !NET_CORE
 	[Serializable]
 #endif
 	public class ResolutionException : Exception {
@@ -62,7 +62,7 @@ namespace Mono.Cecil {
 			this.member = member;
 		}
 
-#if !PCL
+#if !PCL && !NET_CORE
 		protected ResolutionException (
 			System.Runtime.Serialization.SerializationInfo info,
 			System.Runtime.Serialization.StreamingContext context)
@@ -296,7 +296,7 @@ namespace Mono.Cecil {
 			return true;
 		}
 
-		private static bool IsVarArgCallTo (MethodDefinition method, MethodReference reference)
+		static bool IsVarArgCallTo (MethodDefinition method, MethodReference reference)
 		{
 			if (method.Parameters.Count >= reference.Parameters.Count)
 				return false;

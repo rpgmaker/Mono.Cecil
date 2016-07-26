@@ -77,26 +77,21 @@ namespace Mono.Cecil.Cil {
 		{
 			var code_reader = metadata.module.Read (method, (_, reader) => reader.code);
 
-			MethodSymbols symbols;
-			var buffer = code_reader.PatchRawMethodBody (method, this, out symbols);
+			int code_size;
+			MetadataToken local_var_token;
+			var buffer = code_reader.PatchRawMethodBody (method, this, out code_size, out local_var_token);
 
 			WriteBytes (buffer);
 
-			symbols.original_method_token = method.token;
-			symbols.local_var_token = GetLocalVarToken (buffer, symbols);
+			if (method.debug_info == null)
+				return;
 
 			var symbol_writer = metadata.symbol_writer;
-			if (symbol_writer != null)
-				symbol_writer.Write (symbols);
-		}
-
-		static MetadataToken GetLocalVarToken (ByteBuffer buffer, MethodSymbols symbols)
-		{
-			if (symbols.variables.IsNullOrEmpty ())
-				return MetadataToken.Zero;
-
-			buffer.position = 8;
-			return new MetadataToken (buffer.ReadUInt32 ());
+			if (symbol_writer != null) {
+				method.debug_info.code_size = code_size;
+				method.debug_info.local_var_token = local_var_token;
+				symbol_writer.Write (method.debug_info);
+			}
 		}
 
 		void WriteResolvedMethodBody (MethodDefinition method)
@@ -114,8 +109,11 @@ namespace Mono.Cecil.Cil {
 				WriteExceptionHandlers ();
 
 			var symbol_writer = metadata.symbol_writer;
-			if (symbol_writer != null)
-				symbol_writer.Write (body);
+			if (symbol_writer != null && method.debug_info != null) {
+				method.debug_info.code_size = body.CodeSize;
+				method.debug_info.local_var_token = body.local_var_token;
+				symbol_writer.Write (method.debug_info);
+			}
 		}
 
 		void WriteFatHeader ()
@@ -611,13 +609,7 @@ namespace Mono.Cecil.Cil {
 		{
 			WriteUInt32 (token.ToUInt32 ());
 		}
-
-		void Align (int align)
-		{
-			align--;
-			WriteBytes (((position + align) & ~align) - position);
-		}
-
+	
 		void EndMethod ()
 		{
 			current = (RVA) (code_base + position);

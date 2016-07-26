@@ -8,7 +8,7 @@
 // Licensed under the MIT/X11 license.
 //
 
-#if !PCL
+#if !PCL && !NET_CORE
 
 using System;
 using System.Collections.Generic;
@@ -167,7 +167,7 @@ namespace Mono.Cecil {
 
 		AssemblyDefinition SearchDirectory (AssemblyNameReference name, IEnumerable<string> directories, ReaderParameters parameters)
 		{
-			var extensions = new [] { ".exe", ".dll" };
+			var extensions = name.IsWindowsRuntime ? new [] { ".winmd", ".dll" } : new [] { ".exe", ".dll" };
 			foreach (var directory in directories) {
 				foreach (var extension in extensions) {
 					string file = Path.Combine (directory, name.Name + extension);
