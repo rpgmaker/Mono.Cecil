@@ -169,6 +169,11 @@ namespace Mono.Cecil {
 			}
 		}
 
+	    public bool HasDebugInformation
+	    {
+	        get { return debug_info == null; }
+	    }
+
 		public MethodDebugInformation DebugInformation {
 			get {
 				if (debug_info != null)
