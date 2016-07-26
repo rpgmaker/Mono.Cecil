@@ -31,6 +31,7 @@ namespace Mono.Cecil.Cil {
 	}
 
 	public sealed class ScopeDebugInformation : DebugInformation {
+
 		internal InstructionOffset start;
 		internal InstructionOffset end;
 		internal ImportDebugInformation import;

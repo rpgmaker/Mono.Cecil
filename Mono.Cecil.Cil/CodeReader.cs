@@ -52,7 +52,7 @@ namespace Mono.Cecil.Cil {
 
 			this.reader.context = null;
 
-            // Trash the method body after decoding to free up memory
+			// Trash the method body after decoding to free up memory
 			var ret = this.body;
 			this.body = null;
 			return ret;
