@@ -922,16 +922,15 @@ namespace Mono.Cecil {
 
 			return MetadataImporter.ImportReference (method, context);
 		}
-		
+
 		/// <summary>
 		//Use by IL-Repack
 		/// </summary>
 		/// <param name="module">Module where to look for resources</param>
-		public void ImportWin32Resources(ModuleDefinition module)
+		public void ImportWin32Resources (ModuleDefinition module)
 		{
-			Section rsrc = module.Image.GetSection(".rsrc");
-			var resourceRreader = module.Image.GetReaderAt(rsrc.VirtualAddress);
-			Win32Resources = resourceRreader.ReadBytes((int)rsrc.SizeOfRawData);
+			Section rsrc = module.Image.GetSection (".rsrc");
+			Win32Resources = module.Image.GetReaderAt (rsrc.VirtualAddress, rsrc.SizeOfRawData, (s, byteReader) => byteReader.ReadBytes ((int) s));
 			Win32RVA = rsrc.VirtualAddress;
 		}
 
@@ -997,11 +996,11 @@ namespace Mono.Cecil {
 				if (win32ResourceDirectory == null && Image != null)
 				{
 					var rsrc = Image.GetSection(".rsrc");
-				    if (rsrc != null && rsrc.SizeOfRawData > 0)
-                    {
-                        var resource_reader = Image.GetReaderAt(rsrc.VirtualAddress);
-                        win32ResourceDirectory = RsrcReader.ReadResourceDirectory (resource_reader.ReadBytes((int)rsrc.SizeOfRawData), rsrc.VirtualAddress);
-				    }
+					if (rsrc != null && rsrc.SizeOfRawData > 0)
+					{
+						var resource_bytes = Image.GetReaderAt (rsrc.VirtualAddress, rsrc.SizeOfRawData, (s, byteReader) => byteReader.ReadBytes ((int) s));
+						win32ResourceDirectory = RsrcReader.ReadResourceDirectory (resource_bytes, rsrc.VirtualAddress);
+					}
 				}
 				return win32ResourceDirectory ?? (win32ResourceDirectory = new ResourceDirectory());
 			}
