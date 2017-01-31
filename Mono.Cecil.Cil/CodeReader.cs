@@ -31,31 +31,35 @@ namespace Mono.Cecil.Cil {
 		}
 
 		public CodeReader (MetadataReader reader)
-			: base (reader.image.Stream)
+			: base (reader.image.Stream.value)
 		{
 			this.reader = reader;
 		}
 
-		public void MoveTo (MethodDefinition method)
+		public int MoveTo (MethodDefinition method)
 		{
 			this.method = method;
 			this.reader.context = method;
+			var position = this.Position;
 			this.Position = (int) reader.image.ResolveVirtualAddress ((uint) method.RVA);
+			return position;
+		}
+
+		void MoveBackTo (int position)
+		{
+			this.reader.context = null;
+			this.Position = position;
 		}
 
 		public MethodBody ReadMethodBody (MethodDefinition method)
 		{
-			MoveTo (method);
+			var position = MoveTo (method);
 			this.body = new MethodBody (method);
 
 			ReadMethodBody ();
 
-			this.reader.context = null;
-
-			// Trash the method body after decoding to free up memory
-			var ret = this.body;
-			this.body = null;
-			return ret;
+			MoveBackTo (position);
+			return this.body;
 		}
 
 		void ReadMethodBody ()
@@ -155,17 +159,20 @@ namespace Mono.Cecil.Cil {
 
 		void ReadScope (ScopeDebugInformation scope)
 		{
-			scope.Start = new InstructionOffset (GetInstruction (scope.Start.Offset));
+			var start_instruction = GetInstruction (scope.Start.Offset);
+			if (start_instruction != null)
+				scope.Start = new InstructionOffset (start_instruction);
 
 			var end_instruction = GetInstruction (scope.End.Offset);
-			scope.End = end_instruction == null
-				? new InstructionOffset ()
-				: new InstructionOffset (end_instruction);
+			if (end_instruction != null)
+				scope.End = new InstructionOffset (end_instruction);
 
 			if (!scope.variables.IsNullOrEmpty ()) {
 				for (int i = 0; i < scope.variables.Count; i++) {
-					var variable = scope.variables [i];
-					variable.index = new VariableIndex (GetVariable (variable.Index));
+					var variable_info = scope.variables [i];
+					var variable = GetVariable (variable_info.Index);
+					if (variable != null)
+						variable_info.index = new VariableIndex (variable);
 				}
 			}
 
@@ -208,7 +215,7 @@ namespace Mono.Cecil.Cil {
 				code_size = 0;
 
 			var end = start + code_size;
-			var instructions = body.instructions = new InstructionCollection ((code_size + 1) / 2);
+			var instructions = body.instructions = new InstructionCollection (method, (code_size + 1) / 2);
 
 			while (Position < end) {
 				var offset = Position - start;
@@ -445,7 +452,7 @@ namespace Mono.Cecil.Cil {
 
 		public ByteBuffer PatchRawMethodBody (MethodDefinition method, CodeWriter writer, out int code_size, out MetadataToken local_var_token)
 		{
-			MoveTo (method);
+			var position = MoveTo (method);
 
 			var buffer = new ByteBuffer ();
 
@@ -466,7 +473,7 @@ namespace Mono.Cecil.Cil {
 				throw new NotSupportedException ();
 			}
 
-			reader.context = null;
+			MoveBackTo (position);
 
 			return buffer;
 		}

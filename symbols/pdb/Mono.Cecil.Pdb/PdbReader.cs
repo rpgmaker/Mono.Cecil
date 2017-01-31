@@ -25,11 +25,11 @@ namespace Mono.Cecil.Pdb {
 		int age;
 		Guid guid;
 
-		readonly Stream pdb_file;
+		readonly Disposable<Stream> pdb_file;
 		readonly Dictionary<string, Document> documents = new Dictionary<string, Document> ();
 		readonly Dictionary<uint, PdbFunction> functions = new Dictionary<uint, PdbFunction> ();
 
-		internal PdbReader (Stream file)
+		internal PdbReader (Disposable<Stream> file)
 		{
 			this.pdb_file = file;
 		}
@@ -80,7 +80,7 @@ namespace Mono.Cecil.Pdb {
 				int age;
 				Guid guid;
 
-				var funcs = PdbFile.LoadFunctions (pdb_file, out tokenToSourceMapping,  out sourceServerData, out age, out guid);
+				var funcs = PdbFile.LoadFunctions (pdb_file.value, out tokenToSourceMapping,  out sourceServerData, out age, out guid);
 
 				if (this.guid != guid)
 					return false;
@@ -104,10 +104,16 @@ namespace Mono.Cecil.Pdb {
 
 			ReadSequencePoints (function, symbol);
 
-			if (function.scopes.Length > 1)
-				throw new NotSupportedException ();
-			else if (function.scopes.Length == 1)
+			if (!function.scopes.IsNullOrEmpty())
 				symbol.scope = ReadScopeAndLocals (function.scopes [0], symbol);
+
+			if (function.scopes.Length > 1) {
+				for (int i = 1; i < function.scopes.Length; i++) {
+					var s = ReadScopeAndLocals (function.scopes [i], symbol);
+					if (!AddScope (symbol.scope.Scopes, s))
+						symbol.scope.Scopes.Add (s);
+				}
+			}
 
 			return symbol;
 		}
@@ -133,6 +139,9 @@ namespace Mono.Cecil.Pdb {
 				parent.variables = new Collection<VariableDebugInformation> (scope.slots.Length);
 
 				foreach (PdbSlot slot in scope.slots) {
+					if (slot.flags == 1) // parameter names
+						continue;
+
 					var index = (int) slot.slot;
 					var variable = new VariableDebugInformation (index, slot.name);
 					if (slot.flags == 4)
@@ -155,6 +164,21 @@ namespace Mono.Cecil.Pdb {
 			parent.scopes = ReadScopeAndLocals (scope.scopes, info);
 
 			return parent;
+		}
+
+		static bool AddScope (Collection<ScopeDebugInformation> scopes, ScopeDebugInformation scope)
+		{
+			foreach (var sub_scope in scopes) {
+				if (sub_scope.HasScopes && AddScope (sub_scope.Scopes, scope))
+					return true;
+
+				if (scope.Start.Offset >= sub_scope.Start.Offset && scope.End.Offset <= sub_scope.End.Offset) {
+					sub_scope.Scopes.Add (scope);
+					return true;
+				}
+			}
+
+			return false;
 		}
 
 		void ReadSequencePoints (PdbFunction function, MethodDebugInformation info)
@@ -205,7 +229,7 @@ namespace Mono.Cecil.Pdb {
 
 		public void Dispose ()
 		{
-			pdb_file.Close ();
+			pdb_file.Dispose ();
 		}
 	}
 }

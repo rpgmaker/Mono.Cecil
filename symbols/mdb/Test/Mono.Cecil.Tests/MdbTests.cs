@@ -43,5 +43,43 @@ namespace Mono.Cecil.Tests {
 ", main);
 			}, symbolReaderProvider: typeof(MdbReaderProvider), symbolWriterProvider: typeof(MdbWriterProvider));
 		}
+
+		[Test]
+		public void RoundTripCoreLib ()
+		{
+			TestModule ("mscorlib.dll", module => {
+				var type = module.GetType ("System.IO.__Error");
+				var method = type.GetMethod ("WinIOError");
+
+				Assert.IsNotNull (method.Body);
+			}, verify: !Platform.OnMono, symbolReaderProvider: typeof(MdbReaderProvider), symbolWriterProvider: typeof(MdbWriterProvider));
+		}
+
+		[Test]
+		public void PartialClass ()
+		{
+			TestModule ("BreakpointTest.Portable.dll", module => {
+				var type = module.GetType ("BreakpointTest.Portable.TestService/<MyAsyncAction1>c__async3");
+				var method = type.GetMethod ("MoveNext");
+
+				Assert.IsNotNull (method);
+
+				var info = method.DebugInformation;
+				Assert.AreEqual (5, info.SequencePoints.Count);
+				foreach (var sp in info.SequencePoints)
+					Assert.AreEqual(@"C:\tmp\repropartial\BreakpointTest.Portable\TestService.Actions.cs", sp.Document.Url);
+
+				type = module.GetType("BreakpointTest.Portable.TestService/<MyAsyncAction2>c__async2");
+				method = type.GetMethod("MoveNext");
+
+				Assert.IsNotNull(method);
+
+				info = method.DebugInformation;
+				Assert.AreEqual(5, info.SequencePoints.Count);
+				foreach (var sp in info.SequencePoints)
+					Assert.AreEqual(@"C:\tmp\repropartial\BreakpointTest.Portable\TestService.cs", sp.Document.Url);
+
+			}, symbolReaderProvider: typeof(MdbReaderProvider), symbolWriterProvider: typeof(MdbWriterProvider));
+		}
 	}
 }

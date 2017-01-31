@@ -65,7 +65,7 @@ namespace Mono.Cecil {
 			var module = reader.module;
 
 			if (parameters.assembly_resolver != null)
-				module.assembly_resolver = parameters.assembly_resolver;
+				module.assembly_resolver = Disposable.NotOwned (parameters.assembly_resolver);
 
 			if (parameters.metadata_resolver != null)
 				module.metadata_resolver = parameters.metadata_resolver;
@@ -753,7 +753,7 @@ namespace Mono.Cecil {
 						hash = ReadBlob (file_record.Col3)
 					};
 				} else
-					throw new NotSupportedException ();
+					continue;
 
 				resources.Add (resource);
 			}
@@ -778,14 +778,12 @@ namespace Mono.Cecil {
 			return record;
 		}
 
-		public MemoryStream GetManagedResourceStream (uint offset)
+		public byte [] GetManagedResource (uint offset)
 		{
-			var reader = image.GetReaderAt (image.Resources.VirtualAddress);
-			if (reader == null)
-				return new MemoryStream ();
-
-			reader.Advance ((int) offset);
-			return new MemoryStream (reader.ReadBytes (reader.ReadInt32 ()));
+			return image.GetReaderAt (image.Resources.VirtualAddress, offset, (o, reader) => {
+				reader.Advance ((int) o);
+				return reader.ReadBytes (reader.ReadInt32 ());
+			}) ?? Empty<byte>.Array;
 		}
 
 		void PopulateVersionAndFlags (AssemblyNameReference name)
@@ -1359,10 +1357,7 @@ namespace Mono.Cecil {
 
 		byte [] GetFieldInitializeValue (int size, RVA rva)
 		{
-			var reader = image.GetReaderAt (rva);
-			return reader != null
-				? reader.ReadBytes (size)
-				: Empty<byte>.Array;
+			return image.GetReaderAt (rva, size, (s, reader) => reader.ReadBytes (s)) ?? Empty<byte>.Array;
 		}
 
 		static int GetFieldTypeSize (TypeReference type)
@@ -2490,7 +2485,7 @@ namespace Mono.Cecil {
 			return reader.ReadConstantSignature (type);
 		}
 
-		void InitializeCustomAttributes ()
+		internal void InitializeCustomAttributes ()
 		{
 			if (metadata.CustomAttributes != null)
 				return;
@@ -2561,6 +2556,17 @@ namespace Mono.Cecil {
 				size += ranges [i].Length;
 
 			return (int) size;
+		}
+
+		public IEnumerable<CustomAttribute> GetCustomAttributes ()
+		{
+			InitializeTypeDefinitions ();
+
+			var length = image.TableHeap [Table.CustomAttribute].Length;
+			var custom_attributes = new Collection<CustomAttribute> ((int) length);
+			ReadCustomAttributeRange (new Range (1, length), custom_attributes);
+
+			return custom_attributes;
 		}
 
 		public byte [] ReadCustomAttributeBlob (uint signature)
@@ -3744,7 +3750,9 @@ namespace Mono.Cecil {
 				if (i > 0 && separator != 0)
 					builder.Append (separator);
 
-				builder.Append (reader.ReadUTF8StringBlob (ReadCompressedUInt32 ()));
+				uint part = ReadCompressedUInt32 ();
+				if (part != 0)
+					builder.Append (reader.ReadUTF8StringBlob (part));
 			}
 
 			return builder.ToString ();

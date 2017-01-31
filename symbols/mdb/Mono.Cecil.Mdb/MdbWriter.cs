@@ -19,10 +19,13 @@ using Mono.CompilerServices.SymbolWriter;
 namespace Mono.Cecil.Mdb {
 
 #if !READ_ONLY
-	public class MdbWriterProvider : ISymbolWriterProvider {
+	public sealed class MdbWriterProvider : ISymbolWriterProvider {
 
 		public ISymbolWriter GetSymbolWriter (ModuleDefinition module, string fileName)
 		{
+			Mixin.CheckModule (module);
+			Mixin.CheckFileName (fileName);
+
 			return new MdbWriter (module.Mvid, fileName);
 		}
 
@@ -32,7 +35,7 @@ namespace Mono.Cecil.Mdb {
 		}
 	}
 
-	public class MdbWriter : ISymbolWriter {
+	public sealed class MdbWriter : ISymbolWriter {
 
 		readonly Guid mvid;
 		readonly MonoSymbolWriter writer;
@@ -53,7 +56,7 @@ namespace Mono.Cecil.Mdb {
 			if (source_files.TryGetValue (url, out source_file))
 				return source_file;
 
-			var entry = writer.DefineDocument (url);
+			var entry = writer.DefineDocument (url, null, document.Hash != null && document.Hash.Length == 16 ? document.Hash : null);
 			var compile_unit = writer.DefineCompilationUnit (entry);
 
 			source_file = new SourceFile (compile_unit, entry);
@@ -114,30 +117,35 @@ namespace Mono.Cecil.Mdb {
 			}
 
 			if (info.scope != null)
-				WriteScope (info.scope);
+				WriteRootScope (info.scope, info);
 
 			writer.CloseMethod ();
 		}
 
-		void WriteScope (ScopeDebugInformation scope)
+		void WriteRootScope (ScopeDebugInformation scope, MethodDebugInformation info)
 		{
-			if (scope.Start.Offset == scope.End.Offset)
-				return;
+			WriteScopeVariables (scope);
 
-			writer.OpenScope(scope.Start.Offset);
+			if (scope.HasScopes)
+				WriteScopes (scope.Scopes, info);
+		}
+
+		void WriteScope (ScopeDebugInformation scope, MethodDebugInformation info)
+		{
+			writer.OpenScope (scope.Start.Offset);
 
 			WriteScopeVariables (scope);
 
 			if (scope.HasScopes)
-				WriteScopes (scope.Scopes);
+				WriteScopes (scope.Scopes, info);
 
-			writer.CloseScope(scope.End.Offset);
+			writer.CloseScope (scope.End.IsEndOfMethod ? info.code_size : scope.End.Offset);
 		}
 
-		void WriteScopes (Collection<ScopeDebugInformation> scopes)
+		void WriteScopes (Collection<ScopeDebugInformation> scopes, MethodDebugInformation info)
 		{
 			for (int i = 0; i < scopes.Count; i++)
-				WriteScope (scopes [i]);
+				WriteScope (scopes [i], info);
 		}
 
 		void WriteScopeVariables (ScopeDebugInformation scope)
@@ -150,21 +158,11 @@ namespace Mono.Cecil.Mdb {
 					writer.DefineLocalVariable (variable.Index, variable.Name);
 		}
 
-		readonly static byte [] empty_header = new byte [0];
-
 		public bool GetDebugHeader (out ImageDebugDirectory directory, out byte [] header)
 		{
 			directory = new ImageDebugDirectory ();
-			header = empty_header;
+			header = Empty<byte>.Array;
 			return false;
-		}
-
-		void AddVariables (IList<VariableDebugInformation> variables)
-		{
-			for (int i = 0; i < variables.Count; i++) {
-				var variable = variables [i];
-				writer.DefineLocalVariable (i, variable.Name);
-			}
 		}
 
 		public void Dispose ()

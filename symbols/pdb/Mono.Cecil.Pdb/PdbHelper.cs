@@ -9,17 +9,87 @@
 //
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 
 using Mono.Cecil.Cil;
 
 namespace Mono.Cecil.Pdb {
 
-	class PdbHelper {
+	public sealed class NativePdbReaderProvider : ISymbolReaderProvider {
+
+		public ISymbolReader GetSymbolReader (ModuleDefinition module, string fileName)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckFileName (fileName);
+
+			return new PdbReader (Disposable.Owned (File.OpenRead (Mixin.GetPdbFileName (fileName)) as Stream));
+		}
+
+		public ISymbolReader GetSymbolReader (ModuleDefinition module, Stream symbolStream)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckStream (symbolStream);
+
+			return new PdbReader (Disposable.NotOwned (symbolStream));
+		}
+	}
+
+	public sealed class PdbReaderProvider : ISymbolReaderProvider {
+
+		public ISymbolReader GetSymbolReader (ModuleDefinition module, string fileName)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckFileName (fileName);
+
+			return IsPortablePdb (Mixin.GetPdbFileName (fileName))
+				? new PortablePdbReaderProvider ().GetSymbolReader (module, fileName)
+				: new NativePdbReaderProvider ().GetSymbolReader (module, fileName);
+		}
+
+		public ISymbolReader GetSymbolReader (ModuleDefinition module, Stream symbolStream)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckStream (symbolStream);
+			Mixin.CheckReadSeek (symbolStream);
+
+			return IsPortablePdb (symbolStream)
+				? new PortablePdbReaderProvider ().GetSymbolReader (module, symbolStream)
+				: new NativePdbReaderProvider ().GetSymbolReader (module, symbolStream);
+		}
+
+		static bool IsPortablePdb (string fileName)
+		{
+			using (var file = new FileStream (fileName, FileMode.Open, FileAccess.Read, FileShare.Read))
+				return IsPortablePdb (file);
+		}
+
+		static bool IsPortablePdb (Stream stream)
+		{
+			const uint ppdb_signature = 0x424a5342;
+
+			var position = stream.Position;
+			try {
+				var reader = new BinaryReader (stream);
+				return reader.ReadUInt32 () == ppdb_signature;
+			} finally {
+				stream.Position = position;
+			}
+		}
+	}
 
 #if !READ_ONLY
-		public static SymWriter CreateWriter (ModuleDefinition module, string pdb)
+
+	public sealed class NativePdbWriterProvider : ISymbolWriterProvider {
+
+		public ISymbolWriter GetSymbolWriter (ModuleDefinition module, string fileName)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckFileName (fileName);
+
+			return new PdbWriter (module, CreateWriter (module, Mixin.GetPdbFileName (fileName)));
+		}
+
+		static SymWriter CreateWriter (ModuleDefinition module, string pdb)
 		{
 			var writer = new SymWriter ();
 
@@ -30,35 +100,6 @@ namespace Mono.Cecil.Pdb {
 
 			return writer;
 		}
-#endif
-
-		public static string GetPdbFileName (string assemblyFileName)
-		{
-			return Path.ChangeExtension (assemblyFileName, ".pdb");
-		}
-	}
-
-	public class PdbReaderProvider : ISymbolReaderProvider {
-
-		public ISymbolReader GetSymbolReader (ModuleDefinition module, string fileName)
-		{
-			return new PdbReader (File.OpenRead (PdbHelper.GetPdbFileName (fileName)));
-		}
-
-		public ISymbolReader GetSymbolReader (ModuleDefinition module, Stream symbolStream)
-		{
-			return new PdbReader (symbolStream);
-		}
-	}
-
-#if !READ_ONLY
-
-	public class PdbWriterProvider : ISymbolWriterProvider {
-
-		public ISymbolWriter GetSymbolWriter (ModuleDefinition module, string fileName)
-		{
-			return new PdbWriter (module, PdbHelper.CreateWriter (module, PdbHelper.GetPdbFileName (fileName)));
-		}
 
 		public ISymbolWriter GetSymbolWriter (ModuleDefinition module, Stream symbolStream)
 		{
@@ -66,16 +107,36 @@ namespace Mono.Cecil.Pdb {
 		}
 	}
 
-#endif
-}
+	public sealed class PdbWriterProvider : ISymbolWriterProvider {
 
-#if !NET_3_5 && !NET_4_0
+		public ISymbolWriter GetSymbolWriter (ModuleDefinition module, string fileName)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckFileName (fileName);
 
-namespace System.Runtime.CompilerServices {
+			if (HasPortablePdbSymbols (module))
+				return new PortablePdbWriterProvider ().GetSymbolWriter (module, fileName);
 
-	[AttributeUsage (AttributeTargets.Method | AttributeTargets.Class | AttributeTargets.Assembly)]
-	sealed class ExtensionAttribute : Attribute {
+			return new NativePdbWriterProvider ().GetSymbolWriter (module, fileName);
+		}
+
+		static bool HasPortablePdbSymbols (ModuleDefinition module)
+		{
+			return module.symbol_reader != null && module.symbol_reader is PortablePdbReader;
+		}
+
+		public ISymbolWriter GetSymbolWriter (ModuleDefinition module, Stream symbolStream)
+		{
+			Mixin.CheckModule (module);
+			Mixin.CheckStream (symbolStream);
+			Mixin.CheckReadSeek (symbolStream);
+
+			if (HasPortablePdbSymbols (module))
+				return new PortablePdbWriterProvider ().GetSymbolWriter (module, symbolStream);
+
+			return new NativePdbWriterProvider ().GetSymbolWriter (module, symbolStream);
+		}
 	}
-}
 
 #endif
+}

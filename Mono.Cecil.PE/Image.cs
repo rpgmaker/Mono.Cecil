@@ -20,7 +20,7 @@ namespace Mono.Cecil.PE {
 
 	sealed class Image : IDisposable {
 
-		public Stream Stream;
+		public Disposable<Stream> Stream;
 		public string FileName;
 
 		public ModuleKind Kind;
@@ -118,15 +118,29 @@ namespace Mono.Cecil.PE {
 			return null;
 		}
 
-		public BinaryStreamReader GetReaderAt (RVA rva)
+		BinaryStreamReader GetReaderAt (RVA rva)
 		{
 			var section = GetSectionAtVirtualAddress (rva);
 			if (section == null)
 				return null;
 
-			var reader = new BinaryStreamReader (Stream);
+			var reader = new BinaryStreamReader (Stream.value);
 			reader.MoveTo (ResolveVirtualAddressInSection (rva, section));
 			return reader;
+		}
+
+		public TRet GetReaderAt<TItem, TRet> (RVA rva, TItem item, Func<TItem, BinaryStreamReader, TRet> read) where TRet : class
+		{
+			var position = Stream.value.Position;
+			try {
+				var reader = GetReaderAt (rva);
+				if (reader == null)
+					return null;
+
+				return read (item, reader);
+			} finally {
+				Stream.value.Position = position;
+			}
 		}
 
 		public ImageDebugDirectory GetDebugHeader (out byte [] header)

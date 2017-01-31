@@ -18,15 +18,21 @@ using Mono.CompilerServices.SymbolWriter;
 
 namespace Mono.Cecil.Mdb {
 
-	public class MdbReaderProvider : ISymbolReaderProvider {
+	public sealed class MdbReaderProvider : ISymbolReaderProvider {
 
 		public ISymbolReader GetSymbolReader (ModuleDefinition module, string fileName)
 		{
-			return new MdbReader (module, MonoSymbolFile.ReadSymbolFile (fileName + ".mdb", module.Mvid));
+			Mixin.CheckModule (module);
+			Mixin.CheckFileName (fileName);
+
+			return new MdbReader (module, MonoSymbolFile.ReadSymbolFile (Mixin.GetMdbFileName (fileName), module.Mvid));
 		}
 
 		public ISymbolReader GetSymbolReader (ModuleDefinition module, Stream symbolStream)
 		{
+			Mixin.CheckModule (module);
+			Mixin.CheckStream (symbolStream);
+
 			var file = MonoSymbolFile.ReadSymbolFile (symbolStream);
 			if (module.Mvid != file.Guid) {
 				var file_stream = symbolStream as FileStream;
@@ -39,7 +45,7 @@ namespace Mono.Cecil.Mdb {
 		}
 	}
 
-	public class MdbReader : ISymbolReader {
+	public sealed class MdbReader : ISymbolReader {
 
 		readonly ModuleDefinition module;
 		readonly MonoSymbolFile symbol_file;
@@ -80,7 +86,7 @@ namespace Mono.Cecil.Mdb {
 			foreach (var local in locals) {
 				var variable = new VariableDebugInformation (local.Index, local.Name);
 
-				var index = local.BlockIndex - 1;
+				var index = local.BlockIndex;
 				if (index < 0 || index >= scopes.Length)
 					continue;
 
@@ -94,20 +100,16 @@ namespace Mono.Cecil.Mdb {
 
 		void ReadLineNumbers (MethodEntry entry, MethodDebugInformation info)
 		{
-			Document document = null;
 			var table = entry.GetLineNumberTable ();
 
 			info.sequence_points = new Collection<SequencePoint> (table.LineNumbers.Length);
 
 			for (var i = 0; i < table.LineNumbers.Length; i++) {
 				var line = table.LineNumbers [i];
-				if (document == null)
-					document = GetDocument (entry.CompileUnit.SourceFile);
-
 				if (i > 0 && table.LineNumbers [i - 1].Offset == line.Offset)
 					continue;
 
-				info.sequence_points.Add (LineToSequencePoint (line, entry, document));
+				info.sequence_points.Add (LineToSequencePoint (line));
 			}
 		}
 
@@ -119,7 +121,10 @@ namespace Mono.Cecil.Mdb {
 			if (documents.TryGetValue (file_name, out document))
 				return document;
 
-			document = new Document (file_name);
+			document = new Document (file_name) {
+				Hash = file.Checksum,
+			};
+
 			documents.Add (file_name, document);
 
 			return document;
@@ -128,22 +133,22 @@ namespace Mono.Cecil.Mdb {
 		static ScopeDebugInformation [] ReadScopes (MethodEntry entry, MethodDebugInformation info)
 		{
 			var blocks = entry.GetCodeBlocks ();
-			var scopes = new ScopeDebugInformation [blocks.Length];
+			var scopes = new ScopeDebugInformation [blocks.Length + 1];
+
+			info.scope = scopes [0] = new ScopeDebugInformation {
+				Start = new InstructionOffset (0),
+				End = new InstructionOffset (info.code_size),
+			};
 
 			foreach (var block in blocks) {
-				if (block.BlockType != CodeBlockEntry.Type.Lexical)
+				if (block.BlockType != CodeBlockEntry.Type.Lexical && block.BlockType != CodeBlockEntry.Type.CompilerGenerated)
 					continue;
 
 				var scope = new ScopeDebugInformation ();
 				scope.Start = new InstructionOffset (block.StartOffset);
 				scope.End = new InstructionOffset (block.EndOffset);
 
-				scopes [block.Index] = scope;
-
-				if (info.scope == null) {
-					info.scope = scope;
-					continue;
-				}
+				scopes [block.Index + 1] = scope;
 
 				if (!AddScope (info.scope.Scopes, scope))
 					info.scope.Scopes.Add (scope);
@@ -167,9 +172,10 @@ namespace Mono.Cecil.Mdb {
 			return false;
 		}
 
-		static SequencePoint LineToSequencePoint (LineNumberEntry line, MethodEntry entry, Document document)
+		SequencePoint LineToSequencePoint (LineNumberEntry line)
 		{
-			return new SequencePoint (line.Offset, document) {
+			var source = symbol_file.GetSourceFile (line.File);
+			return new SequencePoint (line.Offset, GetDocument (source)) {
 				StartLine = line.Row,
 				EndLine = line.EndRow,
 				StartColumn = line.Column,

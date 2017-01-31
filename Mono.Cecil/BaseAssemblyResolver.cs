@@ -36,7 +36,7 @@ namespace Mono.Cecil {
 	}
 
 	[Serializable]
-	public class AssemblyResolutionException : FileNotFoundException {
+	public sealed class AssemblyResolutionException : FileNotFoundException {
 
 		readonly AssemblyNameReference reference;
 
@@ -50,7 +50,7 @@ namespace Mono.Cecil {
 			this.reference = reference;
 		}
 
-		protected AssemblyResolutionException (
+		AssemblyResolutionException (
 			System.Runtime.Serialization.SerializationInfo info,
 			System.Runtime.Serialization.StreamingContext context)
 			: base (info, context)
@@ -81,19 +81,6 @@ namespace Mono.Cecil {
 			var directories = new string [this.directories.size];
 			Array.Copy (this.directories.items, directories, directories.Length);
 			return directories;
-		}
-
-		public virtual AssemblyDefinition Resolve (string fullName)
-		{
-			return Resolve (fullName, new ReaderParameters ());
-		}
-
-		public virtual AssemblyDefinition Resolve (string fullName, ReaderParameters parameters)
-		{
-			if (fullName == null)
-				throw new ArgumentNullException ("fullName");
-
-			return Resolve (AssemblyNameReference.Parse (fullName), parameters);
 		}
 
 		public event AssemblyResolveEventHandler ResolveFailure;
@@ -171,8 +158,13 @@ namespace Mono.Cecil {
 			foreach (var directory in directories) {
 				foreach (var extension in extensions) {
 					string file = Path.Combine (directory, name.Name + extension);
-					if (File.Exists (file))
+					if (!File.Exists (file))
+						continue;
+					try {
 						return GetAssembly (file, parameters);
+					} catch (System.BadImageFormatException) {
+						continue;
+					}
 				}
 			}
 
@@ -339,6 +331,16 @@ namespace Mono.Cecil {
 				Path.Combine (
 					Path.Combine (gac, reference.Name), gac_folder.ToString ()),
 				reference.Name + ".dll");
+		}
+
+		public void Dispose ()
+		{
+			Dispose (true);
+			GC.SuppressFinalize (this);
+		}
+
+		protected virtual void Dispose (bool disposing)
+		{
 		}
 	}
 }

@@ -14,12 +14,9 @@ using Mono.Collections.Generic;
 
 namespace Mono.Cecil {
 
-	public interface IAssemblyResolver {
+	public interface IAssemblyResolver : IDisposable {
 		AssemblyDefinition Resolve (AssemblyNameReference name);
 		AssemblyDefinition Resolve (AssemblyNameReference name, ReaderParameters parameters);
-
-		AssemblyDefinition Resolve (string fullName);
-		AssemblyDefinition Resolve (string fullName, ReaderParameters parameters);
 	}
 
 	public interface IMetadataResolver {
@@ -31,7 +28,7 @@ namespace Mono.Cecil {
 #if !PCL && !NET_CORE
 	[Serializable]
 #endif
-	public class ResolutionException : Exception {
+	public sealed class ResolutionException : Exception {
 
 		readonly MemberReference member;
 
@@ -63,7 +60,7 @@ namespace Mono.Cecil {
 		}
 
 #if !PCL && !NET_CORE
-		protected ResolutionException (
+		ResolutionException (
 			System.Runtime.Serialization.SerializationInfo info,
 			System.Runtime.Serialization.StreamingContext context)
 			: base (info, context)
